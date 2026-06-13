@@ -38,6 +38,10 @@ def show_cpp(bin_path, title=''):
     ax.imshow(disp, origin='lower', cmap=cmap, vmin=vmin, vmax=vmax)
     for d in demos:
         ax.plot(d[:, 0], d[:, 1], '0.7', lw=1, alpha=.7)
+        # Tiny per-demo endpoint markers (gray, to match the demo line): each
+        # demo runs between its OWN start (o) and goal (*), so mark both.
+        ax.plot(d[0, 0],  d[0, 1],  'o', color='0.5', ms=3, alpha=.8)
+        ax.plot(d[-1, 0], d[-1, 1], '*', color='0.5', ms=5, alpha=.8)
     for p in paths:
         ax.plot(p[:, 0], p[:, 1], 'lime', lw=2)
     ax.plot(sx, sy, 'wo', ms=8); ax.plot(gx, gy, 'w*', ms=14)

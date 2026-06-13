@@ -44,6 +44,10 @@ def show(paths=None, cost_map=None, title=''):
     for d in demos:
         d = np.asarray(d)
         ax.plot(d[:, 0], d[:, 1], '0.7', lw=1, alpha=.7)
+        # Tiny per-demo endpoint markers (gray, to match the demo line): each
+        # demo runs between its OWN start (o) and goal (*), so mark both.
+        ax.plot(d[0, 0],  d[0, 1],  'o', color='0.5', ms=3, alpha=.8)
+        ax.plot(d[-1, 0], d[-1, 1], '*', color='0.5', ms=5, alpha=.8)
     if paths is not None:
         if isinstance(paths, np.ndarray) and paths.ndim == 2:
             paths = [paths]
