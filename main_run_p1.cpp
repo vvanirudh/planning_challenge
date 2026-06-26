@@ -2,10 +2,10 @@
 #include "planner_p1.hpp"
 int main() {
     World w = load_world();
-    auto cm = cost_map_learned(w);
+    Grid cm = cost_map_learned(w);
     Path path = astar_plan(w, cm);
-    show(w, {path}, &cm, "run_cost_p1.bin");
-    show(w, {path}, nullptr, "run_terrain_p1.bin");
+    show(w, {path}, &cm,     "run_cost_p1.bin");    // over the learned cost map
+    show(w, {path}, nullptr, "run_true_p1.bin");    // over the true cost map
     evaluate(w, path, cm);
     return 0;
 }

@@ -11,12 +11,13 @@ import matplotlib.pyplot as plt
 
 
 def show_cpp(bin_path, title=''):
-    """Render a viz dump written by the C++ show() with matplotlib."""
+    """Render a viz dump written by the C++ show() with matplotlib. Points in the
+    dump are (row, col); the plot puts col on the x-axis and row on the y-axis."""
     with open(bin_path, 'rb') as f:
         H, Wd = np.fromfile(f, np.int32, 2)
         grid = np.fromfile(f, np.float64, H * Wd).reshape(H, Wd)
         rock = np.fromfile(f, np.uint8, H * Wd).reshape(H, Wd).astype(bool)
-        sx, sy, gx, gy = np.fromfile(f, np.float64, 4)
+        sr, sc, gr, gc = np.fromfile(f, np.float64, 4)   # start/goal (row,col)
         def read_paths():
             n = int(np.fromfile(f, np.int32, 1)[0])
             out = []
@@ -35,13 +36,13 @@ def show_cpp(bin_path, title=''):
     vmax = float(terrain.max()) if terrain.size else 1.0
     disp = np.where(rock, vmax + 1.0, grid)   # push rocks past vmax -> 'over'
     ax.imshow(disp, origin='lower', cmap=cmap, vmin=vmin, vmax=vmax)
-    for d in demos:
-        ax.plot(d[:, 0], d[:, 1], '0.7', lw=1, alpha=.7)
-        ax.plot(d[0, 0],  d[0, 1],  'o', color='0.5', ms=3, alpha=.8)
-        ax.plot(d[-1, 0], d[-1, 1], '*', color='0.5', ms=5, alpha=.8)
+    for d in demos:                           # d columns are (row, col)
+        ax.plot(d[:, 1], d[:, 0], '0.7', lw=1, alpha=.7)
+        ax.plot(d[0, 1],  d[0, 0],  'o', color='0.5', ms=3, alpha=.8)
+        ax.plot(d[-1, 1], d[-1, 0], '*', color='0.5', ms=5, alpha=.8)
     for p in paths:
-        ax.plot(p[:, 0], p[:, 1], 'lime', lw=2)
-    ax.plot(sx, sy, 'wo', ms=8); ax.plot(gx, gy, 'w*', ms=14)
+        ax.plot(p[:, 1], p[:, 0], 'lime', lw=2)
+    ax.plot(sc, sr, 'wo', ms=8); ax.plot(gc, gr, 'w*', ms=14)
     ax.set_title(title); ax.set_xlim(0, Wd); ax.set_ylim(0, H)
     plt.show()
 

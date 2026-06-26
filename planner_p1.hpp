@@ -1,6 +1,6 @@
 // PROVIDED planner (do not edit -- just call it). astar_plan returns a
-// near-optimal start->goal (x,y) path under the given (H,W) cost_map, found by
-// 8-connected grid A*. Cells with cost >= ROCK_PENALTY/2 are treated as
+// near-optimal start->goal (row,col) path under the given (H x W) cost_map, found
+// by 8-connected grid A*. Cells with cost >= ROCK_PENALTY/2 are treated as
 // untraversable. Move cost between adjacent cells = destination cell cost scaled
 // by step length (1 or sqrt(2)), matching path_cost's integral.
 #pragma once
@@ -8,16 +8,16 @@
 #include "terrain_p1.hpp"
 #include <cmath>
 #include <queue>
+#include <tuple>
 #include <vector>
-#include <unordered_map>
 
-inline Path astar_plan(const World& w, const std::vector<double>& cost_map) {
+inline Path astar_plan(const World& w, const Grid& cost_map) {
     const double HI = ROCK_PENALTY / 2.0;
     auto clampi = [](int v, int lo, int hi){ return std::min(std::max(v,lo),hi); };
-    int sr = clampi((int)std::lround(w.start.y), 0, w.H-1);
-    int sc = clampi((int)std::lround(w.start.x), 0, w.W-1);
-    int gr = clampi((int)std::lround(w.goal.y),  0, w.H-1);
-    int gc = clampi((int)std::lround(w.goal.x),  0, w.W-1);
+    int sr = clampi((int)std::lround(w.start.r), 0, w.H-1);
+    int sc = clampi((int)std::lround(w.start.c), 0, w.W-1);
+    int gr = clampi((int)std::lround(w.goal.r),  0, w.H-1);
+    int gc = clampi((int)std::lround(w.goal.c),  0, w.W-1);
     auto idx = [&](int r, int c){ return size_t(r)*w.W + c; };
     auto h = [&](int r, int c){ return std::hypot(double(r-gr), double(c-gc)); };
 
@@ -37,7 +37,7 @@ inline Path astar_plan(const World& w, const std::vector<double>& cost_map) {
         for (int k = 0; k < 8; ++k) {
             int nr = r + dr[k], nc = c + dc[k];
             if (nr < 0 || nr >= w.H || nc < 0 || nc >= w.W) continue;
-            double cell = cost_map[idx(nr,nc)];
+            double cell = cost_map[nr][nc];
             if (cell >= HI) continue;               // rock / forbidden
             double ng = gc_cur + cell * std::hypot(double(dr[k]), double(dc[k]));
             if (ng < g[idx(nr,nc)]) {
@@ -52,8 +52,8 @@ inline Path astar_plan(const World& w, const std::vector<double>& cost_map) {
         Path p(60);
         for (int i = 0; i < 60; ++i) {
             double a = double(i)/59.0;
-            p[i] = { w.start.x+(w.goal.x-w.start.x)*a,
-                     w.start.y+(w.goal.y-w.start.y)*a };
+            p[i] = { w.start.r+(w.goal.r-w.start.r)*a,
+                     w.start.c+(w.goal.c-w.start.c)*a };
         }
         return p;
     }
@@ -63,7 +63,7 @@ inline Path astar_plan(const World& w, const std::vector<double>& cost_map) {
     Path path;
     for (auto it = cells.rbegin(); it != cells.rend(); ++it) {
         int r = *it / w.W, c = *it % w.W;
-        path.push_back({ double(c), double(r) });
+        path.push_back({ double(r), double(c) });   // (row, col)
     }
     return path;
 }
