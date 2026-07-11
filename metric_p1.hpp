@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <vector>
 
-constexpr double ROCK_PENALTY = 1e6;   // penalty for rock / forbidden / OOB cells
+constexpr double OOB_PENALTY = 1e6;    // per-sample charge for an out-of-bounds point
 constexpr double STEP = 0.5;           // path-integral resampling spacing (cells)
 
 // Resample a (row,col) path to ~uniform STEP spacing; fill rounded int cell
@@ -49,46 +49,35 @@ inline double path_cost(const World& w, const Path& path, const Grid& cost_map) 
             int cr = std::min(std::max(rows[j],0), w.H-1);
             int cc = std::min(std::max(cols[j],0), w.W-1);
             total += cost_map[cr][cc];
-        } else total += ROCK_PENALTY;
+        } else total += OOB_PENALTY;
     }
     return total * STEP;
 }
 
-// Official PASS/FAIL scorer. Checks (1) endpoints near start/goal, (2) feasible
-// under cost_map, (3) in bounds, (4) no rock under hidden true cost, (5) terrain
-// cost <= the near-optimal bar (optimal_cost * tol). Prints a one-line summary.
-inline bool evaluate(const World& w, const Path& path, const Grid& cost_map) {
-    const double HI = ROCK_PENALTY / 2.0;
+// Official PASS/FAIL scorer. Checks (1) endpoints near start/goal, (2) the path
+// stays in bounds, and (3) its terrain cost (under the hidden true cost) is
+// <= the near-optimal bar (optimal_cost * tol). `cost_map` is accepted for
+// backwards compatibility but unused -- there are no impassable cells, so scoring
+// depends only on the true terrain cost. Prints a one-line summary.
+inline bool evaluate(const World& w, const Path& path, const Grid& /*cost_map*/ = {}) {
     double d0r = path.front().r-w.start.r, d0c = path.front().c-w.start.c;
     double d1r = path.back().r -w.goal.r,  d1c = path.back().c -w.goal.c;
     bool start_ok = std::sqrt(d0r*d0r+d0c*d0c) < 5;
     bool goal_ok  = std::sqrt(d1r*d1r+d1c*d1c) < 5;
 
     std::vector<int> rows, cols; std::vector<bool> ib;
-    bool model_feasible=false, rock_hit=false, out_of_bounds=false;
+    bool out_of_bounds = true;
     if (resample_steps(w, path, rows, cols, ib)) {
-        out_of_bounds = false; model_feasible = true; rock_hit = false;
-        for (size_t j = 0; j < rows.size(); ++j) {
-            if (!ib[j]) { out_of_bounds = true; continue; }
-            int cr = std::min(std::max(rows[j],0), w.H-1);
-            int cc = std::min(std::max(cols[j],0), w.W-1);
-            if (cost_map[cr][cc] >= HI) model_feasible = false;
-            double tcv = w.true_cost[cr][cc];
-            double pen = (tcv >= w.rock_sentinel) ? ROCK_PENALTY : tcv;
-            if (pen >= HI) rock_hit = true;
-        }
+        out_of_bounds = false;
+        for (size_t j = 0; j < rows.size(); ++j)
+            if (!ib[j]) { out_of_bounds = true; break; }
     }
-    // honest terrain-only cost: rocks zeroed (already flagged via rock_hit).
-    Grid bare(w.H, std::vector<double>(w.W));
-    for (int r = 0; r < w.H; ++r) for (int c = 0; c < w.W; ++c)
-        bare[r][c] = (w.true_cost[r][c] >= w.rock_sentinel) ? 0.0 : w.true_cost[r][c];
-    double bare_cost = path_cost(w, path, bare);
+    double cost = path_cost(w, path, w.true_cost);   // true terrain cost along the path
     double bar = w.optimal_cost * w.tol;
-    bool success = start_ok && goal_ok && model_feasible
-                   && !rock_hit && !out_of_bounds && bare_cost <= bar;
-    std::printf("start_ok=%d goal_ok=%d model_feasible=%d rock_hit=%d "
-                "out_of_bounds=%d cost=%.1f (bar=%.1f) -> %s\n",
-                start_ok, goal_ok, model_feasible, rock_hit, out_of_bounds,
-                bare_cost, bar, success ? "PASS" : "FAIL");
+    bool success = start_ok && goal_ok && !out_of_bounds && cost <= bar;
+    std::printf("start_ok=%d goal_ok=%d out_of_bounds=%d "
+                "cost=%.1f (bar=%.1f) -> %s\n",
+                start_ok, goal_ok, out_of_bounds, cost, bar,
+                success ? "PASS" : "FAIL");
     return success;
 }

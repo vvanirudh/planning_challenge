@@ -8,8 +8,11 @@ terrain cost stays hidden behind `path_cost` / `evaluate` (it lives in
 meta['true_cost'] as an opaque grid); recovering it from the demos is the point,
 so resist peeking here.
 
+The terrain has only mud and slope -- there are no rocks / impassable cells, so
+every cell is traversable at a finite cost.
+
 Convention: all points are (row, col), so a path point p indexes a cost map
-directly as cost_map[p[0], p[1]]. features[r, c] is the 3-vector at that cell.
+directly as cost_map[p[0], p[1]]. features[r, c] is the 2-vector at that cell.
 """
 import os
 import heapq
@@ -21,20 +24,12 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 def _load(name):
     return os.path.join(_HERE, name)
 
-features = np.load(_load('field_p1.npy'))                    # (H, W, 3) tensor
+features = np.load(_load('field_p1.npy'))                    # (H, W, 2) tensor
 demos = np.load(_load('demos_p1.npy'), allow_pickle=True)    # object array of (T,2) (row,col)
 meta  = np.load(_load('meta_p1.npz'))
 start, goal = meta['start'], meta['goal']                    # (row, col)
 H, W = features.shape[:2]
-ROCK, MUD, SLOPE = 0, 1, 2
-
-# Example cost map (2D, (H,W)): uniform 1.0 everywhere, rocks untraversable. It is
-# just a runnable example, NOT the true cost -- routing the provided planner with
-# it finds the shortest rock-avoiding path (ignoring mud/slope) -> FAILs the bar.
-# Replacing it with a demo-informed cost is the TODO.
-ROCK_PENALTY = 1e6
-example_cost_map = np.ones((H, W))
-example_cost_map[features[..., ROCK] == 1] = ROCK_PENALTY
+MUD, SLOPE = 0, 1
 
 
 def show(paths=None, cost_map=None, title=''):
@@ -43,13 +38,7 @@ def show(paths=None, cost_map=None, title=''):
     (row, col); the plot puts col on the x-axis and row on the y-axis.'''
     fig, ax = plt.subplots(figsize=(6, 6))
     grid = np.asarray(cost_map if cost_map is not None else meta['true_cost'], float)
-    rock = features[..., ROCK] == 1
-    terrain = grid[~rock]
-    cmap = plt.get_cmap('viridis').copy()
-    cmap.set_over('0.6')   # rocks shown distinctly (gray)
-    vmin = float(terrain.min()) if terrain.size else 0.0
-    vmax = float(terrain.max()) if terrain.size else 1.0
-    ax.imshow(grid, origin='lower', cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.imshow(grid, origin='lower', cmap='viridis')
     for d in demos:
         d = np.asarray(d)
         ax.plot(d[:, 1], d[:, 0], '0.7', lw=1, alpha=.7)
@@ -71,13 +60,8 @@ def show(paths=None, cost_map=None, title=''):
 # peek -- recovering it from the demos is the point of the challenge.
 OPTIMAL_COST = float(meta['optimal_cost'])     # cost of A* on the TRUE cost map
 TOL = float(meta['tol'])
-_TRUE_COST = meta['true_cost']                 # (H,W) opaque scoring grid
-_ROCK = float(meta['rock_sentinel'])           # cells >= this are rock
+_TRUE_COST = np.asarray(meta['true_cost'], float)  # (H,W) opaque scoring grid
 _STEP = 0.5                                    # path-integral resampling (cells)
-# ROCK_PENALTY (large finite, set above) marks "do not enter" cells.
-_HI = ROCK_PENALTY / 2                          # cells >= this count as "rock"
-_TRUE_COST_PEN  = np.where(_TRUE_COST >= _ROCK, ROCK_PENALTY, _TRUE_COST)
-_TRUE_COST_BARE = np.where(_TRUE_COST >= _ROCK, 0.0,          _TRUE_COST)
 
 def _resample_steps(path):
     '''Resample (row,col) `path` to ~uniform _STEP spacing; return
@@ -96,11 +80,13 @@ def _resample_steps(path):
     in_bounds = (rows >= 0) & (rows <= H - 1) & (cols >= 0) & (cols <= W - 1)
     return rows, cols, in_bounds
 
+_OOB_PENALTY = 1e6   # per-sample charge for an out-of-bounds path point
+
 def path_cost(path, cost_map):
     '''Integrate cost_map along a (row,col) path; return total cost (lower is
     better, empty path -> inf). Resamples to ~uniform spacing first, so the
-    result is independent of waypoint count. Mark "do not enter" cells with
-    ROCK_PENALTY (not np.inf); out-of-bounds points are charged the same.
+    result is independent of waypoint count. Out-of-bounds points are charged a
+    large penalty, so a path that leaves the grid is scored as very costly.
     '''
     cost_map = np.asarray(cost_map, float)
     if cost_map.shape != (H, W):
@@ -110,17 +96,17 @@ def path_cost(path, cost_map):
         return float('inf')
     rows, cols, in_bounds = rs
     cells = np.where(in_bounds, cost_map[np.clip(rows, 0, H - 1), np.clip(cols, 0, W - 1)],
-                     ROCK_PENALTY)
+                     _OOB_PENALTY)
     return float(cells.sum() * _STEP)
 
-def evaluate(path, cost_map):
+def evaluate(path, cost_map=None):
     '''Official PASS/FAIL scorer. Returns True iff the path passes.
 
     `path` is an (T,2) array of (row,col) points. Checks (1) endpoints near
-    start/goal, (2) the path is feasible under `cost_map` (no untraversable
-    cells along it), (3) stays in bounds, (4) doesn't touch a rock under the
-    hidden true cost, and (5) terrain cost <= the near-optimal bar. Prints a
-    one-line summary.
+    start/goal, (2) the path stays in bounds, and (3) its terrain cost (under the
+    hidden true cost) is <= the near-optimal bar. Prints a one-line summary.
+    `cost_map` is accepted for backwards compatibility but not used -- there are
+    no impassable cells, so scoring depends only on the true terrain cost.
 
     The bar (OPTIMAL_COST * TOL) is the cost of the provided `astar_plan` on the
     TRUE cost map, times a comfortable tolerance -- so a cost map that ranks the
@@ -131,34 +117,22 @@ def evaluate(path, cost_map):
     start_ok = bool(np.linalg.norm(path[0]  - start) < 5)
     goal_ok  = bool(np.linalg.norm(path[-1] - goal)  < 5)
     rs = _resample_steps(path)
-    if rs is None:
-        model_feasible = rock_hit = out_of_bounds = False
-    else:
-        rows, cols, in_bounds = rs
-        out_of_bounds = bool(not in_bounds.all())
-        rc, cc = np.clip(rows, 0, H - 1), np.clip(cols, 0, W - 1)
-        model_feasible = not bool((in_bounds &
-                                   (np.asarray(cost_map, float)[rc, cc] >= _HI)).any())
-        rock_hit = bool((in_bounds & (_TRUE_COST_PEN[rc, cc] >= _HI)).any())
-    bare_cost = path_cost(path, _TRUE_COST_BARE)   # honest terrain-only cost
+    out_of_bounds = True if rs is None else bool(not rs[2].all())
+    cost = path_cost(path, _TRUE_COST)   # true terrain cost along the path
     bar = OPTIMAL_COST * TOL
-    success = bool(start_ok and goal_ok and model_feasible
-                   and not rock_hit and not out_of_bounds
-                   and bare_cost <= bar)
-    print(f"start_ok={start_ok} goal_ok={goal_ok} "
-          f"model_feasible={model_feasible} rock_hit={rock_hit} "
-          f"out_of_bounds={out_of_bounds} "
-          f"cost={bare_cost:.1f} (bar={bar:.1f}) -> {'PASS' if success else 'FAIL'}")
+    success = bool(start_ok and goal_ok and not out_of_bounds and cost <= bar)
+    print(f"start_ok={start_ok} goal_ok={goal_ok} out_of_bounds={out_of_bounds} "
+          f"cost={cost:.1f} (bar={bar:.1f}) -> {'PASS' if success else 'FAIL'}")
     return success
 
 
 def astar_plan(cost_map):
     '''PROVIDED planner (do not edit -- just call it). Returns a near-optimal
     (T,2) (row,col) path from start to goal under the given (H,W) cost_map, found
-    by 8-connected grid A*. Cells with cost >= ROCK_PENALTY/2 are treated as
-    untraversable. The move cost between adjacent cells is the destination cell
-    cost scaled by the step length (1 or sqrt(2)), matching path_cost's integral,
-    so minimizing A*'s path here also minimizes the scored cost.'''
+    by 8-connected grid A*. The move cost between adjacent cells is the
+    destination cell cost scaled by the step length (1 or sqrt(2)), matching
+    path_cost's integral, so minimizing A*'s path here also minimizes the scored
+    cost.'''
     cm = np.asarray(cost_map, float)
     if cm.shape != (H, W):
         raise ValueError(f'cost_map must have shape {(H, W)}, got {cm.shape}')
@@ -189,8 +163,6 @@ def astar_plan(cost_map):
             if not (0 <= nr < H and 0 <= nc < W):
                 continue
             cell = cm[nr, nc]
-            if cell >= _HI:               # rock / forbidden
-                continue
             ng = g[r, c] + cell * float(np.hypot(dr, dc))
             if ng < g[nr, nc]:
                 g[nr, nc] = ng
@@ -198,7 +170,7 @@ def astar_plan(cost_map):
                 heapq.heappush(pq, (ng + h(nr, nc), nr, nc))
 
     if not np.isfinite(g[gr, gc]):
-        # No feasible route under this cost map (e.g. everything marked rock).
+        # No route reached the goal (shouldn't happen -- every cell is finite).
         # Return the straight line so the metric can still score/fail it.
         return np.linspace(start, goal, 60)
     cells = [(gr, gc)]
@@ -208,4 +180,14 @@ def astar_plan(cost_map):
     return np.array([[r, c] for (r, c) in cells], dtype=float)
 
 
-__all__ = ['features', 'demos', 'meta', 'start', 'goal', 'H', 'W', 'ROCK', 'MUD', 'SLOPE', 'OPTIMAL_COST', 'TOL', 'ROCK_PENALTY', 'example_cost_map', 'show', 'path_cost', 'evaluate', 'astar_plan', 'plt', 'np']
+def run_and_score(cost_map_learned):
+    '''Route the provided planner with your learned cost, plot the result, and
+    print the official PASS/FAIL line. Pass your `cost_map_learned` function.'''
+    cm = cost_map_learned(features, demos)
+    path = astar_plan(cm)
+    show(path, cost_map=cm, title='planned path over your learned cost map')
+    show(path, title='planned path over the true terrain cost')
+    return evaluate(path)
+
+
+__all__ = ['features', 'demos', 'meta', 'start', 'goal', 'H', 'W', 'MUD', 'SLOPE', 'OPTIMAL_COST', 'TOL', 'show', 'astar_plan', 'run_and_score', 'plt', 'np']

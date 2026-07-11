@@ -16,7 +16,6 @@ def show_cpp(bin_path, title=''):
     with open(bin_path, 'rb') as f:
         H, Wd = np.fromfile(f, np.int32, 2)
         grid = np.fromfile(f, np.float64, H * Wd).reshape(H, Wd)
-        rock = np.fromfile(f, np.uint8, H * Wd).reshape(H, Wd).astype(bool)
         sr, sc, gr, gc = np.fromfile(f, np.float64, 4)   # start/goal (row,col)
         def read_paths():
             n = int(np.fromfile(f, np.int32, 1)[0])
@@ -29,13 +28,7 @@ def show_cpp(bin_path, title=''):
         paths = read_paths()
 
     fig, ax = plt.subplots(figsize=(6, 6))
-    terrain = grid[~rock]
-    cmap = plt.get_cmap('viridis').copy()
-    cmap.set_over('0.6')                      # rocks shown distinctly (gray)
-    vmin = float(terrain.min()) if terrain.size else 0.0
-    vmax = float(terrain.max()) if terrain.size else 1.0
-    disp = np.where(rock, vmax + 1.0, grid)   # push rocks past vmax -> 'over'
-    ax.imshow(disp, origin='lower', cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.imshow(grid, origin='lower', cmap='viridis')
     for d in demos:                           # d columns are (row, col)
         ax.plot(d[:, 1], d[:, 0], '0.7', lw=1, alpha=.7)
         ax.plot(d[0, 1],  d[0, 0],  'o', color='0.5', ms=3, alpha=.8)

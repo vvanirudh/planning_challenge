@@ -1,8 +1,7 @@
 // PROVIDED planner (do not edit -- just call it). astar_plan returns a
 // near-optimal start->goal (row,col) path under the given (H x W) cost_map, found
-// by 8-connected grid A*. Cells with cost >= ROCK_PENALTY/2 are treated as
-// untraversable. Move cost between adjacent cells = destination cell cost scaled
-// by step length (1 or sqrt(2)), matching path_cost's integral.
+// by 8-connected grid A*. Move cost between adjacent cells = destination cell cost
+// scaled by step length (1 or sqrt(2)), matching path_cost's integral.
 #pragma once
 #include "metric_p1.hpp"
 #include "terrain_p1.hpp"
@@ -12,7 +11,6 @@
 #include <vector>
 
 inline Path astar_plan(const World& w, const Grid& cost_map) {
-    const double HI = ROCK_PENALTY / 2.0;
     auto clampi = [](int v, int lo, int hi){ return std::min(std::max(v,lo),hi); };
     int sr = clampi((int)std::lround(w.start.r), 0, w.H-1);
     int sc = clampi((int)std::lround(w.start.c), 0, w.W-1);
@@ -38,7 +36,6 @@ inline Path astar_plan(const World& w, const Grid& cost_map) {
             int nr = r + dr[k], nc = c + dc[k];
             if (nr < 0 || nr >= w.H || nc < 0 || nc >= w.W) continue;
             double cell = cost_map[nr][nc];
-            if (cell >= HI) continue;               // rock / forbidden
             double ng = gc_cur + cell * std::hypot(double(dr[k]), double(dc[k]));
             if (ng < g[idx(nr,nc)]) {
                 g[idx(nr,nc)] = ng;

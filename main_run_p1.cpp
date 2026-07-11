@@ -6,6 +6,6 @@ int main() {
     Path path = astar_plan(w, cm);
     show(w, {path}, &cm,     "run_cost_p1.bin");    // over the learned cost map
     show(w, {path}, nullptr, "run_true_p1.bin");    // over the true cost map
-    evaluate(w, path, cm);
+    evaluate(w, path);
     return 0;
 }
